@@ -17,7 +17,12 @@ module.exports = function(root, jsFile) {
         }
     }
 
+    var sourceName = path.basename(jsFile, '.js')
     var literals = {}
+    var usages = {actors: {}, actions: {}}
+    usages.actors[sourceName] = []
+    usages.actions[sourceName] = []
+
     walk(ast, function(node) {
         // Remember declarations of string literals which my be referenced later in (crude with no regard for scope!)
         if(node.type === "VariableDeclaration") {
@@ -25,13 +30,13 @@ module.exports = function(root, jsFile) {
                 return _.get(dec, 'init.type') === 'Literal'
             }),
                 function(dec) {
-                    literals[dec.id.name] = dec.init.value;
+                    literals[dec.id.name] = dec.init.value
                 })
         }
 
         if(node.type === "CallExpression" && _.get(node, 'callee.object.name') === 'seneca') {
             var argProperties = _.chain(node.arguments).pluck('properties').flatten().value()
-            var callArgSummary = _.reduce(argProperties, function(acc, property) {
+            var actionLabel = _.reduce(argProperties, function(acc, property) {
                 if(_.isUndefined(property)) return acc
                 var key = stringifyExpression(property.key)
                 var value = stringifyExpression(property.value, literals)
@@ -42,8 +47,17 @@ module.exports = function(root, jsFile) {
                 else return acc
             }, '')
 
-            if(callArgSummary.length > 0 && _.includes(['add', 'act'], node.callee.property.name))
-                console.log(path.basename(jsFile, '.js') + ':' + node.callee.property.name + ':' + callArgSummary)
+            if(actionLabel.length > 0 && _.includes(['add', 'act'], node.callee.property.name)) {
+                switch (node.callee.property.name) {
+                    case 'add':
+                        usages.actors[sourceName].push(actionLabel)
+                        break
+                    case 'act':
+                        usages.actions[sourceName].push(actionLabel)
+                        break
+                }
+            }
         }
     })
+    return usages
 }
