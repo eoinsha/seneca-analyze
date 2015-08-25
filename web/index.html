@@ -9,42 +9,27 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/3.10.1/lodash.js"></script>
 
     <script type="application/javascript">
-        var createIfNeeded = function(graph, label, id, group, parent) {
-            if(_.isUndefined(graph.node(id))) {
-                console.log("NODE", id, label, group)
-                graph.setNode(id, {label: label, group: group})
-                if(parent) {
-                    console.log('PARENT', id, parent)
-                    graph.setParent(id, parent)
-                }
-            }
-        }
         var renderData = function(data) {
             var g = new dagreD3.graphlib.Graph({compound: true})
             g.setGraph({})
             g.setDefaultEdgeLabel(function() { return {} })
 
-            g.setNode("group", {label: 'Group', group: 'group'})
-
+            var actorSources = {}
             _.forEach(_.keys(data.actors), function(source) {
-                createIfNeeded(g, source, source + '_group', source, 'group')
+                g.setNode(source, { label: source, group: source })
+
                 _.forEach(data.actors[source], function(actor) {
-                    createIfNeeded(g, actor, actor, source, source+'_group')
+                    actorSources[actor] = source
                 })
             })
 
-
-            createIfNeeded(g, 'UNKNOWN', 'UNKNOWN', 'UNKNOWN', 'group')
+            g.setNode('UNKNOWN', {label: 'UNKNOWN'})
 
             _.forEach(_.keys(data.actions), function(source) {
                 _.forEach(data.actions[source], function(action) {
-                    var groupNodeId = source + '_group'
-                    createIfNeeded(g, source, groupNodeId, source, 'group')
-                    if(_.isUndefined(g.node(action))) {
-                        createIfNeeded(g, action, action, 'UNKNOWN', 'UNKNOWN')
-                    }
-                    g.setEdge(groupNodeId, action)
-                    console.log('EDGE', groupNodeId, action)
+                    if(!g.hasNode(source)) g.setNode(source, {label: source, group: source})
+                    var dest = actorSources[action] || 'UNKNOWN'
+                    g.setEdge(source, dest, {label: action, lineInterpolate: 'basis'})
                 })
             })
 
@@ -53,13 +38,22 @@
             // Set up an SVG group so that we can translate the final graph.
             var svg = d3.select("svg"),
             svgGroup = svg.append("g");
+            var zoom = d3.behavior.zoom().on("zoom", function() {
+                svgGroup.attr("transform", "translate(" + d3.event.translate + ")" +
+                    "scale(" + d3.event.scale + ")");
+            });
+            svg.call(zoom);
 
-            render(d3.select("svg g"), g);
+
+            render(svgGroup, g);
+
 
             // Center the graph
-            var xCenterOffset = (svg.attr("width") - g.graph().width) / 2;
-            svgGroup.attr("transform", "translate(" + xCenterOffset + ", 20)");
-            svg.attr("height", g.graph().height + 40);
+            var initialScale = 0.75;
+            zoom.translate([(svg.attr("width") - g.graph().width * initialScale) / 2, 20])
+                .scale(initialScale)
+                .event(svg);
+            svg.attr('height', g.graph().height * initialScale + 40);
         }
 
         $(document).ready(function () {
@@ -95,6 +89,6 @@
     </style>
 </head>
 <body>
-<svg id="svg-canvas" width=960 height=600></svg>
+<svg id="svg-canvas" width=1920 height=1080></svg>
 </body>
 </html>
