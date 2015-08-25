@@ -20,8 +20,7 @@ module.exports = function(root, jsFile) {
     var sourceName = path.basename(jsFile, '.js')
     var literals = {}
     var usages = {actors: {}, actions: {}}
-    usages.actors[sourceName] = []
-    usages.actions[sourceName] = []
+
 
     walk(ast, function(node) {
         // Remember declarations of string literals which my be referenced later in (crude with no regard for scope!)
@@ -50,9 +49,11 @@ module.exports = function(root, jsFile) {
             if(actionLabel.length > 0 && _.includes(['add', 'act'], node.callee.property.name)) {
                 switch (node.callee.property.name) {
                     case 'add':
+                        if(!usages.actors[sourceName]) usages.actors[sourceName] = []
                         usages.actors[sourceName].push(actionLabel)
                         break
                     case 'act':
+                        if(!usages.actions[sourceName]) usages.actions[sourceName] = []
                         usages.actions[sourceName].push(actionLabel)
                         break
                 }
