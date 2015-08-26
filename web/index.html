@@ -33,12 +33,12 @@
             var actorSources = {}
             _.forEach(_.keys(data.actors), function(source) {
                 var sourceId = getSourceId(source)
-                nodes.push({id: sourceId, label: source, group: sourceId, shape: 'box', size: 40, font: {size: 30}})
+                nodes.push({id: sourceId, label: source, group: sourceId, shape: 'dot', size: 50, borderWidth: 2, font: {size: 30}})
 
                 _.forEach(data.actors[source], function(actor) {
                     actorSources[actor] = sourceId
                     addNode(nodes, {id: actor, label: actor, group: sourceId, shape: 'box'})
-                    addEdge(edges, {from: sourceId, to: actor})
+                    addEdge(edges, {from: sourceId, to: actor, dashes: true})
                 })
             })
 
@@ -47,7 +47,8 @@
             _.forEach(_.keys(data.actions), function(source) {
                 var sourceId = getSourceId(source)
                 _.forEach(data.actions[source], function(action) {
-                    addNode(nodes, {id: action, label: action, group: sourceId, shape: 'box'})
+                    // Undeclared actors get their own style
+                    addNode(nodes, {id: action, label: action, group: sourceId, shape: 'box', shapeProperties:{borderDashes:true}, font: {size: 30}, size: 50})
                     addEdge(edges, {from: getSourceId(source), to: action, arrows: 'to'})
                 })
             })
