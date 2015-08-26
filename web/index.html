@@ -3,57 +3,82 @@
 <head lang="en">
     <meta charset="UTF-8">
     <title>seneca-analyze</title>
-    <script src="http://d3js.org/d3.v3.js"></script>
-    <script src="http://cpettitt.github.io/project/dagre-d3/v0.3.0/dagre-d3.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.7.0/vis.js"></script>
     <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/3.10.1/lodash.js"></script>
 
     <script type="application/javascript">
+        var getSourceId = function (source) { return '_source_' + source }
+
+        /**
+         * Add a node if id doesn't already exist
+         */
+        var addNode = function(nodes, node) {
+            if(_.isUndefined(_.findWhere(nodes, {id : node.id}))) {
+                node.label = node.label.replace('\/','\n')
+                nodes.push(node)
+            }
+        }
+
+        var addEdge = function(edges, edge) {
+            if(_.isUndefined(_.findWhere(edges, {from: edge.from, to: edge.to}))) {
+                edges.push(edge)
+            }
+        }
+
         var renderData = function(data) {
-            var g = new dagreD3.graphlib.Graph({compound: true})
-            g.setGraph({})
-            g.setDefaultEdgeLabel(function() { return {} })
+            var nodes = []
+            var edges = []
 
             var actorSources = {}
             _.forEach(_.keys(data.actors), function(source) {
-                g.setNode(source, { label: source, group: source })
+                var sourceId = getSourceId(source)
+                nodes.push({id: sourceId, label: source, group: sourceId, shape: 'box', size: 40, font: {size: 30}})
 
                 _.forEach(data.actors[source], function(actor) {
-                    actorSources[actor] = source
+                    actorSources[actor] = sourceId
+                    addNode(nodes, {id: actor, label: actor, group: sourceId, shape: 'box'})
+                    addEdge(edges, {from: sourceId, to: actor})
                 })
             })
 
-            g.setNode('UNKNOWN', {label: 'UNKNOWN'})
+            nodes.push({id: 'UNKNOWN', label: 'UNKNOWN'})
 
             _.forEach(_.keys(data.actions), function(source) {
+                var sourceId = getSourceId(source)
                 _.forEach(data.actions[source], function(action) {
-                    if(!g.hasNode(source)) g.setNode(source, {label: source, group: source})
-                    var dest = actorSources[action] || 'UNKNOWN'
-                    g.setEdge(source, dest, {label: action, lineInterpolate: 'basis'})
+                    addNode(nodes, {id: action, label: action, group: sourceId, shape: 'box'})
+                    addEdge(edges, {from: getSourceId(source), to: action, arrows: 'to'})
                 })
             })
 
-            var render = new dagreD3.render();
+            var container = $('#senecaNetwork').get(0)
 
-            // Set up an SVG group so that we can translate the final graph.
-            var svg = d3.select("svg"),
-            svgGroup = svg.append("g");
-            var zoom = d3.behavior.zoom().on("zoom", function() {
-                svgGroup.attr("transform", "translate(" + d3.event.translate + ")" +
-                    "scale(" + d3.event.scale + ")");
-            });
-            svg.call(zoom);
-
-
-            render(svgGroup, g);
-
-
-            // Center the graph
-            var initialScale = 0.75;
-            zoom.translate([(svg.attr("width") - g.graph().width * initialScale) / 2, 20])
-                .scale(initialScale)
-                .event(svg);
-            svg.attr('height', g.graph().height * initialScale + 40);
+            var options = {
+                autoResize: true,
+                height: '100%',
+                nodes: {
+//                    shape: 'dot',
+                    scaling: {
+                        min: 10,
+                        max: 30,
+                        label: {
+                            min: 8,
+                            max: 30,
+                            drawThreshold: 12
+//                            maxVisible: 20
+                        }
+                    }
+                },
+                interaction:{
+                    hover: true,
+                    navigationButtons: true
+                },
+                layout:{
+                    randomSeed:2
+                }
+            }
+            var network = new vis.Network(container, {nodes: nodes, edges: edges}, options)
         }
 
         $(document).ready(function () {
@@ -64,31 +89,13 @@
     </script>
 
     <style>
-        .clusters rect {
-            fill: #00ffd0;
-            stroke: #999;
-            stroke-width: 1.5px;
-        }
-
-        text {
-            font-weight: 300;
-            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-            font-size: 14px;
-        }
-
-        .node rect {
-            stroke: #999;
-            fill: #fff;
-            stroke-width: 1.5px;
-        }
-
-        .edgePath path {
-            stroke: #333;
-            stroke-width: 1.5px;
+        #senecaNetwork {
+            width: 1920px;
+            height: 1080px;
         }
     </style>
 </head>
 <body>
-<svg id="svg-canvas" width=1920 height=1080></svg>
+<div id="senecaNetwork"></div>
 </body>
 </html>
