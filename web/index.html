@@ -42,8 +42,6 @@
                 })
             })
 
-            nodes.push({id: 'UNKNOWN', label: 'UNKNOWN'})
-
             _.forEach(_.keys(data.actions), function(source) {
                 var sourceId = getSourceId(source)
                 _.forEach(data.actions[source], function(action) {
