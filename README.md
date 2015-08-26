@@ -8,3 +8,5 @@ npm install
 
 node main.js /path/to/project/root
 ```
+
+Then browse to http://localhost:${PORT} (default PORT: 8000)
