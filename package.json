@@ -16,7 +16,7 @@
     "esprima": "^2.5.0",
     "esprima-walk": "^0.1.0",
     "express": "^4.13.3",
-    "globby": "^2.1.0",
+    "glob-stream": "^5.0.0",
     "lodash": "^3.10.1",
     "yargs": "^3.21.0"
   }

@@ -4,8 +4,8 @@ var esprima = require('esprima')
 var walk = require( 'esprima-walk' )
 var _ = require('lodash')
 
-module.exports = function(root, jsFile) {
-    var source = fs.readFileSync(path.join(root, jsFile), 'UTF-8')
+module.exports = function(jsFile) {
+    var source = fs.readFileSync(jsFile, 'UTF-8')
     var ast = esprima.parse(source)
 
     var stringifyExpression = function(expr, literals) {
