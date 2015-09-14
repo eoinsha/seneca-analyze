@@ -1,19 +1,181 @@
 var fs = require('fs')
 var path = require ('path')
 var esprima = require('esprima')
-var walk = require( 'esprima-walk' )
 var _ = require('lodash')
 
 module.exports = function(jsFile) {
     var source = fs.readFileSync(jsFile, 'UTF-8')
     var ast = esprima.parse(source)
 
-    var stringifyExpression = function(expr, literals) {
-        switch(expr.type) {
-            case 'Literal': return expr.value
-            case 'Identifier': return (literals && literals[expr.name]) || expr.name
-            case 'MemberExpression' : return expr.object.name + '.' + expr.property.name
-                return null
+    var scope = { seneca: undefined, globals: {}, stack: []}
+
+    var UNKNOWN = {}
+    var SENECA_INSTANCE = {}
+
+    /**
+     * @param paramNames Array of declared function parameter names
+     * @param bodyAst The function body's BlockExpression AST
+     * @constructor
+     */
+    var FunctionDeclaration = function(paramNames, bodyAst) {
+        this.paramNames = paramNames
+        this.bodyAst = bodyAst
+        this.evaluated = false
+    }
+
+    var Scope = function() {
+        this.seneca = undefined
+        this.globals = {}
+        this.stack = [{}]
+
+        this.declareVar = function(name, value) {
+            this.stack[this.stack.length - 1][name] = value
+        }
+
+        this.assign = function(name, value) {
+            var frame = this.stack[this.stack.length - 1]
+            if(frame.hasOwnProperty(name)) {
+                frame[name] = value
+            }
+            else {
+                this.globals[name] = value
+            }
+        }
+
+        this.pop = function() {
+            var top = this.stack.length - 1
+            if(top > 0) {
+                this.stack = this.stack.slice(0, top)
+            }
+        }
+
+        this.findValue = function(name) {
+            var top = this.stack.length - 1
+            if (top >= 0) {
+                return this.stack[top][name] || this.globals[name]
+            }
+            throw "Attempt to read past bottom of stack"
+        }
+
+        this.push = function() {
+            this.stack.push({})
+        }
+    }
+
+    var evaluate = function(value, scope) {
+        if(value instanceof FunctionDeclaration) {
+            scope.push()
+            var result = walk(value.bodyAst, scope)
+            scope.pop()
+            return result
+        }
+        return value
+    }
+
+    var walk = function(node, scope) {
+        switch(node.type) {
+            case 'Literal': return node.value
+            case 'UnaryExpression':
+                var val = walk(node.argument, scope)
+                switch(node.operator) {
+                    case '+': return +evaluate(val)
+                    case '-': return -evaluate(val)
+                    case '~': return ~evaluate(val)
+                    case '!': return !evaluate(val)
+                    return UNKNOWN
+                }
+            case 'ArrayExpression':
+                return _.map(node.elements, function(el) {
+                    return evaluate(walk(el, scope))
+                })
+            case 'ObjectExpression':
+                var obj = {}
+                _.forEach(node.properties, function(prop) {
+                    obj[prop.key.value || prop.key.name] = prop.value === null ? null : evaluate(walk(prop.value, scope))
+                })
+                return obj
+            case 'BinaryExpression':case 'LogicalExpression':
+                var opLeft = evaluate(walk(node.left))
+                if(opLeft === UNKNOWN) return UNKNOWN
+                var opRight = evaluate(walk(node.right))
+                if(opRight === UNKNOWN) return UNKNOWN
+                switch(node.operator) {
+                    case '==': return opLeft == opRight
+                    case '===': return opLeft === opRight
+                    case '!=': return opLeft != opRight
+                    case '!==': return opLeft !== opRight
+                    case '+': return opLeft + opRight
+                    case '-': return opLeft - opRight
+                    case '*': return opLeft * opRight
+                    case '/': return opLeft / opRight
+                    case '%': return opLeft % opRight
+                    case '<': return opLeft < opRight
+                    case '<=': return opLeft <= opRight
+                    case '>': return opLeft > opRight
+                    case '>=': return opLeft >= opRight
+                    case '|': return opLeft | opRight
+                    case '&': return opLeft & opRight
+                    case '^': return opLeft ^ opRight
+                    case '&&': return opLeft && opRight
+                    case '||': return opLeft || opRight
+                }
+            case 'Identifier': return scope.findValue(node.name)
+            case 'CallExpression':
+                var callee = walk(node.callee, scope)
+                if(callee instanceof FunctionDeclaration) {
+                    var argValues = _.map(node.arguments, function(arg) {
+                        return evaluate(walk(arg, scope), scope)
+                    })
+                    return evaluate(callee, scope, _.zipObject(callee.paramNames, argValues))
+                }
+                if(!node.callee.object && node.callee.name === "require") {
+                    if(node.arguments.length > 0 && node.arguments[0].value === "seneca") {
+                        return SENECA_INSTANCE
+                    }
+                    return UNKNOWN
+                }
+                throw "I don't know what to call - TODO"
+                break;
+            case 'MemberExpression':
+                var obj = walk(node.object, scope)
+                if(obj === UNKNOWN) return UNKNOWN
+                if(node.property.type === 'Identifier') {
+                    return obj[node.property.name]
+                }
+                var prop = walk(node.property)
+                if(prop === UNKNOWN) return UNKNOWN
+                return obj[prop]
+            case 'ConditionalExpression':
+                var val = evaluate(walk(node.test, scope))
+                if(val === UNKNOWN) return UNKNOWN
+                return val ? walk(node.consequent, scope) : walk(node.alternate, scope)
+            case 'FunctionExpression':
+                var paramNames = _.map(node.params, function(param) {
+                    return param.name
+                })
+                return new FunctionDeclaration(paramNames, node.body)
+            case 'AssignmentExpression':
+                scope.assign(node.left.name, evaluate(walk(node.right, scope), scope))
+                return;
+            case 'VariableDeclaration':
+                _.forEach(node.declarations, function(decl) {
+                    scope.declareVar(decl.id.name, walk(decl.init, scope))
+                })
+                return;
+            case 'ExpressionStatement':
+                return walk(node.expression, scope)
+            case 'SequenceExpression':
+                var result
+                _.forEach(node.expressions, function(expr) {
+                    result = walk(expr, scope)
+                })
+                return result;
+            case 'Program':
+                _.forEach(node.body, function(expr) {
+                    walk(expr, scope)
+                })
+                return
+            return UNKNOWN
         }
     }
 
@@ -21,7 +183,10 @@ module.exports = function(jsFile) {
     var literals = {}
     var usages = {actors: {}, actions: {}}
 
+    var scope = new Scope()
+    walk(ast, scope)
 
+    /**
     walk(ast, function(node) {
         // Remember declarations of string literals which my be referenced later in (crude with no regard for scope!)
         if(node.type === 'VariableDeclaration') {
@@ -58,7 +223,6 @@ module.exports = function(jsFile) {
                     else return acc
                 }, '')
             }
-
             if(actionLabel.length > 0 && _.includes(['add', 'act'], node.callee.property.name)) {
                 switch (node.callee.property.name) {
                     case 'add':
@@ -73,5 +237,6 @@ module.exports = function(jsFile) {
             }
         }
     })
+     */
     return usages
 }
