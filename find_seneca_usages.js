@@ -23,6 +23,18 @@ module.exports = function(jsFile) {
         this.evaluated = false
     }
 
+    var CallExecution = function(func) {
+        this.func = func
+    }
+
+    var ApplyExecution = function(func) {
+        this.func = func
+    }
+
+    var BindExecution = function(func) {
+        this.func = func
+    }
+
     var Scope = function() {
         this.seneca = undefined
         this.globals = {}
@@ -73,6 +85,7 @@ module.exports = function(jsFile) {
     }
 
     var walk = function(node, scope) {
+        console.log("WALK", node, scope)
         switch(node.type) {
             case 'Literal': return node.value
             case 'UnaryExpression':
@@ -119,14 +132,23 @@ module.exports = function(jsFile) {
                     case '&&': return opLeft && opRight
                     case '||': return opLeft || opRight
                 }
-            case 'Identifier': return scope.findValue(node.name)
+            case 'Identifier': return scope.findValue(node.name) || UNKNOWN
             case 'CallExpression':
                 var callee = walk(node.callee, scope)
+                if(callee === UNKNOWN) return UNKNOWN
                 if(callee instanceof FunctionDeclaration) {
-                    var argValues = _.map(node.arguments, function(arg) {
-                        return evaluate(walk(arg, scope), scope)
-                    })
-                    return evaluate(callee, scope, _.zipObject(callee.paramNames, argValues))
+                    return executeFunction(callee, scope, callee.paramNames, node.arguments)
+                }
+                if(callee instanceof CallExecution) {
+                    // TODO - 'this' is ignored for now
+                    return executeFunction(callee, scope, callee.paramNames, node.arguments.splice(1))
+                }
+                if(callee instanceof ApplyExecution) {
+                    // TODO - 'this' is ignored for now
+                    return executeFunction(callee, scope, callee.paramNames, node.arguments[1] || [])
+                }
+                if(callee instanceof BindExecution) {
+                    return _.cloneDeep(callee)
                 }
                 if(!node.callee.object && node.callee.name === "require") {
                     if(node.arguments.length > 0 && node.arguments[0].value === "seneca") {
@@ -135,12 +157,24 @@ module.exports = function(jsFile) {
                     return UNKNOWN
                 }
                 throw "I don't know what to call - TODO"
-                break;
             case 'MemberExpression':
                 var obj = walk(node.object, scope)
                 if(obj === UNKNOWN) return UNKNOWN
                 if(node.property.type === 'Identifier') {
-                    return obj[node.property.name]
+                    var memberValue = obj[node.property.name]
+                    if(memberValue === undefined) {
+                        switch(node.property.name) {
+                            case 'call':
+                                return new CallExecution(obj)
+                            case 'apply':
+                                return new ApplyExecution(obj)
+                            case 'bind':
+                                return new BindExecution(obj)
+                            default:
+                                console.error("Don't know what to do with unknown member", node.property.type, "of", obj)
+                                return UNKNOWN
+                        }
+                    }
                 }
                 var prop = walk(node.property)
                 if(prop === UNKNOWN) return UNKNOWN
@@ -177,6 +211,13 @@ module.exports = function(jsFile) {
                 return
             return UNKNOWN
         }
+    }
+
+    var executeFunction = function(callee, scope, paramNames, argNodes) {
+        var argValues = _.map(argNodes, function(arg) {
+            return evaluate(walk(arg, scope), scope)
+        })
+        return evaluate(callee, scope, _.zipObject(paramNames, argValues))
     }
 
     var sourceName = path.basename(jsFile, '.js')
